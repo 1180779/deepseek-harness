@@ -31,8 +31,11 @@ pre-commit:
       glob: '{package.json,*/package.json,*/*/package.json,*/*/*/package.json,*/*/*/*/package.json,pnpm-workspace.yaml,*/*/pnpm-workspace.yaml,pnpm-lock.yaml,vendor/README.md,python/*/pyproject.toml,apps/desktop/scripts/primary-runtime-lock.json,scripts/gen-third-party-notices.ts,scripts/browser-bundled-externals.ts,scripts/build-exe-for-python-sdk.ts,tsconfig.base*.json,packages/*/*/src/**/*,packages/*/*/tsdown.config.ts,packages/client/tsdown.client.ts,apps/*/src/**/*,apps/*/vite.config.ts}'
       run: node_modules/.bin/tsx scripts/gen-third-party-notices.ts && git add THIRD_PARTY_NOTICES.md
 
+    # `--no-pager` is required, not cosmetic: the hook keeps its stdout on the
+    # terminal, and a `LESS` without `-F` makes the pager wait for `q` even when
+    # the check prints nothing, so the commit hangs before reaching the summary.
     - name: whitespace (staged)
-      run: git diff --cached --check
+      run: git --no-pager diff --cached --check
 
     - name: vendor manifest guard
       run: scripts/check-vendor-manifest.sh
