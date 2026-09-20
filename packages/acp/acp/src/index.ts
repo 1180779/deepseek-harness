@@ -5,6 +5,8 @@
  * clients. It carries standard configuration, MCP mounts, prompt content,
  * committed semantic updates, cancellation, and one-shot permission decisions;
  * presentation and human-interaction features stay with the harness's UI modules.
+ * Deployments whose client speaks only the superseded model surface opt into
+ * `legacyModelSelection`.
  *
  * @module @deepseek-ai/dsh-acp
  */
@@ -52,10 +54,19 @@ import type {} from '@deepseek-ai/dsh-session-persistence'
 import type {} from '@deepseek-ai/dsh-user-approval'
 import { supportsAcpImagePrompts } from './content.ts'
 import { AcpMcpConfigError } from './mcp.ts'
-import { AcpModelConfigError } from './model-control.ts'
+import {
+  AcpModelConfigError,
+  MODEL_CONFIG_ID,
+  type LegacyModelState,
+  type ModelOptionPresentation,
+} from './model-control.ts'
 import { AcpSession } from './session.ts'
 
 const DEFAULT_SESSION_LIST_PAGE_SIZE = 100
+const DEFAULT_MODEL_OPTIONS: ModelOptionPresentation = 'grouped'
+// The pre-config-option model-selection method, removed from ACP v1 in favour
+// of `session/set_config_option` but still sent by IntelliJ 2026.2.
+const SET_SESSION_MODEL_METHOD = 'session/set_model'
 
 export const name = 'acp'
 /** Core services required by the standard automation controls. */
@@ -77,6 +88,18 @@ export interface AcpConfig {
   provider?: string
   /** Model name for created agents. */
   model?: string
+  /**
+   * How the `model` option lists values. `grouped` is the standard
+   * presentation; `flat` is one list whose labels carry the provider name,
+   * which is what a client reading only the flat variant renders.
+   */
+  modelOptions?: ModelOptionPresentation
+  /**
+   * Also serve the superseded model surface: the `models` state on
+   * `session/new` and `session/resume`, and the `session/set_model` method.
+   * Required by clients that predate `session/set_config_option`.
+   */
+  legacyModelSelection?: boolean
   /** Maximum summaries returned by one session/list page. */
   sessionListPageSize?: number
   /** Runtime-only transport override; production uses stdio. */
@@ -86,6 +109,8 @@ export interface AcpConfig {
 export const Config: Schema<AcpConfig> = Schema.object({
   provider: Schema.string(),
   model: Schema.string(),
+  modelOptions: Schema.union(['grouped', 'flat']).default(DEFAULT_MODEL_OPTIONS),
+  legacyModelSelection: Schema.boolean().default(false),
   sessionListPageSize: Schema.natural().min(1).default(DEFAULT_SESSION_LIST_PAGE_SIZE),
 })
 
@@ -100,6 +125,8 @@ export function apply(ctx: Context, config: AcpConfig): void {
   const persistence = ctx.sessionPersistence
   const logger = ctx.logger
   const sessionListPageSize = resolveSessionListPageSize(config.sessionListPageSize)
+  const modelOptions = config.modelOptions ?? DEFAULT_MODEL_OPTIONS
+  const legacyModelSelection = config.legacyModelSelection === true
   const sessions = new Map<SessionId, AcpSession>()
   const activating = new Set<SessionId>()
   let closed = false
@@ -193,7 +220,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
       return Promise.resolve()
     },
 
-    async newSession(params: NewSessionRequest, signal: AbortSignal): Promise<NewSessionResponse> {
+    async newSession(params: NewSessionRequest, signal: AbortSignal): Promise<LegacySessionResponse & NewSessionResponse> {
       assertOpen()
       validateWorkspaceParams(params)
       const sessionId = brandString<SessionId>(randomUUID())
@@ -209,6 +236,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
           mcpServers: params.mcpServers,
           agentOptions: agentOptions(config),
           fallbackSelection: initialSelection(config),
+          modelOptions,
           signal,
           notify,
         })
@@ -223,12 +251,12 @@ export function apply(ctx: Context, config: AcpConfig): void {
       }
       sessions.set(sessionId, record)
       try {
-        const configOptions = await record.configOptions(signal)
+        const state = await record.sessionConfig(signal)
         assertOpen()
         // The attached log writer's flush materializes an empty session durably.
         await ctx.sessions.flush(record.agent.session)
         assertOpen()
-        return { sessionId, configOptions }
+        return { sessionId, ...legacyModelState(state.legacy, legacyModelSelection), configOptions: state.configOptions }
       } catch (error: unknown) {
         sessions.delete(sessionId)
         await record.close('session/new activation failed')
@@ -236,7 +264,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
       }
     },
 
-    async resumeSession(params: ResumeSessionRequest, signal: AbortSignal): Promise<ResumeSessionResponse> {
+    async resumeSession(params: ResumeSessionRequest, signal: AbortSignal): Promise<LegacySessionResponse & ResumeSessionResponse> {
       assertOpen()
       validateWorkspaceParams(params)
       const sessionId = brandString<SessionId>(params.sessionId)
@@ -260,6 +288,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
             mcpServers: params.mcpServers ?? [],
             agentOptions: agentOptions(config),
             fallbackSelection: initialSelection(config),
+            modelOptions,
             signal,
             notify,
           })
@@ -280,7 +309,8 @@ export function apply(ctx: Context, config: AcpConfig): void {
         }
         sessions.set(sessionId, record)
         try {
-          return { configOptions: await record.configOptions(signal) }
+          const state = await record.sessionConfig(signal)
+          return { ...legacyModelState(state.legacy, legacyModelSelection), configOptions: state.configOptions }
         } catch (error: unknown) {
           sessions.delete(sessionId)
           await record.close('session/resume option discovery failed')
@@ -344,6 +374,18 @@ export function apply(ctx: Context, config: AcpConfig): void {
       }
     },
 
+    async setSessionModel(params: SetSessionModelRequest, signal: AbortSignal): Promise<SetSessionModelResponse> {
+      assertOpen()
+      const record = requireSession(brandString<SessionId>(params.sessionId))
+      try {
+        await record.setConfig(MODEL_CONFIG_ID, params.modelId, signal)
+      } catch (error: unknown) {
+        if (error instanceof AcpModelConfigError) throw invalidParams(error.message)
+        throw error
+      }
+      return {}
+    },
+
     async closeSession(params: CloseSessionRequest): Promise<CloseSessionResponse> {
       assertOpen()
       const sessionId = brandString<SessionId>(params.sessionId)
@@ -388,6 +430,15 @@ export function apply(ctx: Context, config: AcpConfig): void {
     .onRequest(methods.agent.session.setConfigOption, ({ params, signal }) => implementation.setSessionConfigOption(params, signal))
     .onRequest(methods.agent.session.prompt, ({ params, signal }) => implementation.prompt(params, signal))
     .onNotification(methods.agent.session.cancel, ({ params }) => implementation.cancel(params))
+  // The superseded method is registered only for the deployments that ask for
+  // it, so a standard client sees exactly the standard method set.
+  if (legacyModelSelection) {
+    app.onRequest(
+      SET_SESSION_MODEL_METHOD,
+      parseSetSessionModelRequest,
+      ({ params, signal }) => implementation.setSessionModel(params, signal),
+    )
+  }
   const connection = app.connect(stream)
   const conn: AgentContext = connection.client
 
@@ -453,6 +504,50 @@ function initialSelection(config: AcpConfig): ModelSelection | undefined {
   return config.provider === undefined || config.model === undefined
     ? undefined
     : { provider: config.provider, model: config.model }
+}
+
+/** The superseded model state appended to session responses when the deployment enables it. */
+interface LegacySessionResponse {
+  models?: LegacyModelState
+}
+
+/** Legacy `session/set_model` parameters, which no current ACP schema describes. */
+interface SetSessionModelRequest {
+  sessionId: string
+  modelId: string
+}
+
+/** The superseded method's empty response, matching the pre-config-option wire shape. */
+type SetSessionModelResponse = Record<string, never>
+
+/**
+ * Publish the legacy model state only for a deployment that enables it.
+ * @param legacy - the session's legacy model state, absent without a route.
+ * @param enabled - whether this deployment serves the superseded surface.
+ * @returns the response fields to spread, empty when the surface is disabled.
+ */
+function legacyModelState(legacy: LegacyModelState | undefined, enabled: boolean): LegacySessionResponse {
+  return enabled && legacy !== undefined ? { models: legacy } : {}
+}
+
+/**
+ * Validate the superseded `session/set_model` parameters, which the ACP v1
+ * schema no longer describes and therefore cannot parse.
+ * @param params - raw JSON-RPC parameters.
+ * @returns the validated session id and opaque model value.
+ */
+function parseSetSessionModelRequest(params: unknown): SetSessionModelRequest {
+  if (typeof params !== 'object' || params === null) {
+    throw invalidParams('session/set_model requires an object')
+  }
+  const { sessionId, modelId } = params as { sessionId?: unknown; modelId?: unknown }
+  if (typeof sessionId !== 'string' || sessionId.length === 0) {
+    throw invalidParams('session/set_model requires a sessionId')
+  }
+  if (typeof modelId !== 'string' || modelId.length === 0) {
+    throw invalidParams('session/set_model requires a modelId')
+  }
+  return { sessionId, modelId }
 }
 
 interface SessionListCursor {

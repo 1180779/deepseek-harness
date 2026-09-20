@@ -1003,3 +1003,116 @@ describe('automation-only ACP bridge', () => {
     await expect(harness.client.cancel({ sessionId: 'missing' })).resolves.toBeUndefined()
   })
 })
+
+describe('superseded ACP model surface', () => {
+  let harness: BridgeHarness
+
+  afterEach(async () => {
+    await harness?.dispose()
+  })
+
+  it('serves the standard surface alone unless the deployment opts in', async () => {
+    harness = await makeBridgeHarness()
+    await harness.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
+
+    const created = await harness.client.newSession({ cwd: process.cwd(), mcpServers: [] })
+
+    expect(created).not.toHaveProperty('models')
+    expect(created.configOptions?.find(option => option.id === 'model')).toMatchObject({
+      options: [{ group: 'mock', name: 'Mock' }],
+    })
+    await expect(harness.client.setSessionModel({ sessionId: created.sessionId, modelId: '["mock","mock"]' }))
+      .rejects.toThrow(/Method not found/)
+  })
+
+  it('lists flat provider-qualified values and the legacy model state when enabled', async () => {
+    harness = await makeBridgeHarness({ config: { modelOptions: 'flat', legacyModelSelection: true } })
+    harness.registerCatalogProvider('alternate')
+    await harness.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
+
+    const created = await harness.client.newSession({ cwd: process.cwd(), mcpServers: [] })
+
+    expect(created.configOptions?.find(option => option.id === 'model')).toMatchObject({
+      currentValue: '["mock","mock"]',
+      options: [
+        { value: '["mock","mock"]', name: 'Mock: Mock Reasoner' },
+        { value: '["mock","plain"]', name: 'Mock: Mock Plain' },
+        { value: '["alternate","mock"]', name: 'Mock alternate: Mock Reasoner' },
+        { value: '["alternate","plain"]', name: 'Mock alternate: Mock Plain' },
+      ],
+    })
+    expect((created as { models?: unknown }).models).toEqual({
+      currentModelId: '["mock","mock"]',
+      availableModels: [
+        {
+          modelId: '["mock","mock"]',
+          name: 'Mock: Mock Reasoner',
+          description: 'Mock model with selectable reasoning.',
+        },
+        { modelId: '["mock","plain"]', name: 'Mock: Mock Plain' },
+        {
+          modelId: '["alternate","mock"]',
+          name: 'Mock alternate: Mock Reasoner',
+          description: 'Mock model with selectable reasoning.',
+        },
+        { modelId: '["alternate","plain"]', name: 'Mock alternate: Mock Plain' },
+      ],
+    })
+  })
+
+  it('routes the next turn through a legacy model change and rejects an unknown value', async () => {
+    harness = await makeBridgeHarness({
+      script: [textResponse('routed')],
+      config: { modelOptions: 'flat', legacyModelSelection: true },
+    })
+    harness.registerCatalogProvider('alternate')
+    await harness.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
+    const created = await harness.client.newSession({ cwd: process.cwd(), mcpServers: [] })
+
+    await expect(harness.client.setSessionModel({
+      sessionId: created.sessionId,
+      modelId: '["nope","nope"]',
+    })).rejects.toThrow(/unknown model option/)
+    await expect(harness.client.setSessionModel({
+      sessionId: created.sessionId,
+      modelId: '["mock","plain"]',
+    })).resolves.toEqual({})
+    await harness.client.prompt({ sessionId: created.sessionId, prompt: [{ type: 'text', text: 'go' }] })
+
+    expect(harness.adapter.requests.at(-1)).toMatchObject({ provider: 'mock', model: 'plain' })
+
+    await harness.client.closeSession({ sessionId: created.sessionId })
+    const resumed = await harness.client.resumeSession({ sessionId: created.sessionId, cwd: process.cwd() })
+    const resumedModels = (resumed as { models?: { currentModelId?: string } }).models
+    expect(resumedModels?.currentModelId).toBe('["mock","plain"]')
+  })
+
+  it('propagates a non-configuration failure from the superseded method', async () => {
+    harness = await makeBridgeHarness({
+      script: [textResponse('unused')],
+      config: { legacyModelSelection: true },
+    })
+    await harness.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
+    const created = await harness.client.newSession({ cwd: process.cwd(), mcpServers: [] })
+    const resolution = vi.spyOn(harness.ctx.llm, 'resolveCallConfig')
+      .mockRejectedValue(new Error('selection failed'))
+
+    await expect(harness.client.setSessionModel({
+      sessionId: created.sessionId,
+      modelId: '["mock","plain"]',
+    })).rejects.toThrow(/Internal error/)
+    resolution.mockRestore()
+  })
+
+  it('rejects malformed legacy params before touching a session', async () => {
+    harness = await makeBridgeHarness({ config: { legacyModelSelection: true } })
+    await harness.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
+
+    await expect(harness.client.setSessionModel({ sessionId: '', modelId: 'x' }))
+      .rejects.toThrow(/requires a sessionId/)
+    await expect(harness.client.setSessionModel({ sessionId: 'a', modelId: '' }))
+      .rejects.toThrow(/requires a modelId/)
+    await expect(harness.client.request('session/set_model', 'nonsense'))
+      .rejects.toThrow(/requires an object/)
+  })
+})

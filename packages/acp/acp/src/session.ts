@@ -16,7 +16,7 @@ import { type Session, type SessionEvent, type SessionId, type TurnEndReason } f
 import { AcpContentError, admitAcpPrompt } from './content.ts'
 import { turnEndToStopReason } from './codec.ts'
 import { mountAcpMcpServers } from './mcp.ts'
-import { AcpModelControl } from './model-control.ts'
+import { AcpModelControl, type AcpSessionConfig, type ModelOptionPresentation } from './model-control.ts'
 import { assistantUpdates, toolCallUpdate, toolResultUpdate } from './updates.ts'
 
 /** The continuable-subagent teardown used without depending on the subagent package. */
@@ -31,6 +31,7 @@ interface AcpSessionBuildOptions {
   mcpServers: readonly McpServer[]
   agentOptions: AgentOptions
   fallbackSelection: ModelSelection | undefined
+  modelOptions: ModelOptionPresentation
   signal: AbortSignal
   notify: (notification: SessionNotification) => Promise<void>
 }
@@ -124,7 +125,7 @@ export class AcpSession {
    * @returns the fully composed per-session module.
    */
   static async create(ctx: Context, options: CreateAcpSessionOptions): Promise<AcpSession> {
-    const modelControl = new AcpModelControl(ctx.llm, options.fallbackSelection)
+    const modelControl = new AcpModelControl(ctx.llm, options.fallbackSelection, options.modelOptions)
     const handle = await ctx.agents.create({
       sessionId: options.sessionId,
       meta: { cwd: options.cwd },
@@ -154,6 +155,7 @@ export class AcpSession {
         modelControl = new AcpModelControl(
           ctx.llm,
           selectionFor(agent.session.requestHeader(), options.fallbackSelection),
+          options.modelOptions,
         )
         modelControl.install(agentCtx)
         await mountAcpMcpServers(agentCtx, options.mcpServers, options.cwd)
@@ -187,13 +189,13 @@ export class AcpSession {
   }
 
   /**
-   * Return the complete standard model configuration state.
+   * Return the complete session configuration state.
    * @param signal - optional request cancellation.
-   * @returns provider-grouped model and exact-model reasoning options.
+   * @returns the standard model and reasoning options plus the legacy model state.
    */
-  configOptions(signal?: AbortSignal): Promise<SessionConfigOption[]> {
+  sessionConfig(signal?: AbortSignal): Promise<AcpSessionConfig> {
     this.assertActive()
-    return this.modelControl.options(signal)
+    return this.modelControl.sessionConfig(signal)
   }
 
   /**
@@ -211,8 +213,8 @@ export class AcpSession {
   /** Resolve topology state off-chain, then serialize its notification without blocking execution updates. */
   topologyChanged(): void {
     if (this.closing !== undefined) return
-    void this.modelControl.options()
-      .then((configOptions) => {
+    void this.modelControl.sessionConfig()
+      .then(({ configOptions }) => {
         if (this.closing !== undefined) return
         const previous = this.outputTail
         this.outputTail = previous

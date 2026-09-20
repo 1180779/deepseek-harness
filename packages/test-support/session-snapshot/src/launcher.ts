@@ -86,8 +86,16 @@ export interface AcpTestClient {
   resumeSession: (params: ResumeSessionRequest) => Promise<ResumeSessionResponse>
   closeSession: (params: CloseSessionRequest) => Promise<CloseSessionResponse>
   setSessionConfigOption: (params: SetSessionConfigOptionRequest) => Promise<SetSessionConfigOptionResponse>
+  /** The superseded model-selection method, which ACP v1 replaced with `session/set_config_option`. */
+  setSessionModel: (params: SetSessionModelRequest) => Promise<Record<string, never>>
   prompt: (params: PromptRequest) => Promise<PromptResponse>
   cancel: (params: CancelNotification) => Promise<void>
+}
+
+/** Parameters of the superseded `session/set_model` request. */
+export interface SetSessionModelRequest {
+  sessionId: string
+  modelId: string
 }
 
 /** A running ACP test process and its captured client-side outputs. */
@@ -236,6 +244,8 @@ export function launchAcpTestAgent(options: AcpTestLaunchOptions): LaunchedAcpTe
     closeSession: params => context.request(methods.agent.session.close, params),
     /* v8 ignore next -- exercised by the real-process ACP control-surface conformance e2e. */
     setSessionConfigOption: params => context.request(methods.agent.session.setConfigOption, params),
+    /* v8 ignore next -- exercised by the real-process superseded-model-surface e2e. */
+    setSessionModel: (params: SetSessionModelRequest) => context.request('session/set_model', params),
     prompt: params => context.request(methods.agent.session.prompt, params),
     cancel: params => context.notify(methods.agent.session.cancel, params),
   }

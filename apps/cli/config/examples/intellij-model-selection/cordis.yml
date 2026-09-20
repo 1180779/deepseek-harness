@@ -1,0 +1,15 @@
+# Opt-in patch over `dsh --profile acp` for ACP clients that predate
+# `session/set_config_option`. JetBrains IntelliJ 2026.2 reads model values only
+# from the flat `SessionConfigSelectOptions` variant and registers its model
+# toggle from the superseded `models` state, so the standard surface leaves it
+# with no model control. A profile patch replaces the row's whole config, so the
+# shipped provider and model are restated here; keep them in step with
+# `packages/bundle/acp-app/cordis.patch.yml`.
+
+- id: acp
+  name: '@deepseek-ai/dsh-acp'
+  config:
+    provider: deepseek-official
+    model: deepseek-v4-flash
+    modelOptions: flat
+    legacyModelSelection: true

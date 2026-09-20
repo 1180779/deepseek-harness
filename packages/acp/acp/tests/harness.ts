@@ -190,6 +190,10 @@ interface BridgeClient {
   resumeSession: NonNullable<AcpAgent['resumeSession']>
   closeSession: NonNullable<AcpAgent['closeSession']>
   setSessionConfigOption: NonNullable<AcpAgent['setSessionConfigOption']>
+  /** The superseded model-selection method, which the ACP v1 schema no longer describes. */
+  setSessionModel: (params: { sessionId: string; modelId: string }) => Promise<Record<string, never>>
+  /** Send one request by method name, for surfaces the ACP v1 schema does not describe. */
+  request: (method: string, params: unknown) => Promise<unknown>
   prompt: (params: PromptRequest, options?: SendRequestOptions) => Promise<PromptResponse>
   cancel: NonNullable<AcpAgent['cancel']>
 }
@@ -302,6 +306,8 @@ export async function makeBridgeHarness(options: {
     resumeSession: params => client.request(methods.agent.session.resume, params),
     closeSession: params => client.request(methods.agent.session.close, params),
     setSessionConfigOption: params => client.request(methods.agent.session.setConfigOption, params),
+    setSessionModel: params => client.request('session/set_model', params),
+    request: (method, params) => client.request(method, params),
     prompt: (params, options) => client.request(methods.agent.session.prompt, params, options),
     cancel: params => client.notify(methods.agent.session.cancel, params),
   }

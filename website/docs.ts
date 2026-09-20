@@ -155,6 +155,14 @@ const homeAndGuide = pairedPages([
     order: 1,
   },
   {
+    source: 'docs/user/guide/intellij-model-selection.md',
+    route: 'guide/intellij-model-selection.md',
+    label: { root: '在 IntelliJ 中选择模型', en: 'Select the model in IntelliJ' },
+    sidebar: { root: 'zh-guide', en: 'en-guide' },
+    section: { root: '自动化', en: 'Automation' },
+    order: 3,
+  },
+  {
     source: 'docs/user/guide/schedule.md',
     route: 'guide/schedule.md',
     label: { root: '会话内提醒', en: 'Session reminders' },
