@@ -31,6 +31,7 @@ kind: "package-reference"
 
 当自动化应拥有交互时选择它：管理持久会话、工具、模型选择与权限的进程外 subagent、测试运行器或脚本化控制器。当人类需要 DSH 专用呈现卡片、计划、标题、todo、终端视图或 elicitation 时请避开；本服务器刻意只提供标准 ACP v1 界面。
 
+<a id="minimal-configuration"></a>
 ### 最小配置
 
 服务器创建的每个会话都使用此处配置的提供方与模型。两个字段都是可选的，以便由另一个 agent/request 监听器提供；可运行的演示组合会同时设置两者。Stdout 只承载协议流量，因此请让日志远离它。
@@ -46,6 +47,8 @@ kind: "package-reference"
 |---|---|---|
 | `provider` | — | 每个会话 agent 的提供方路由 |
 | `model` | — | 每个会话 agent 的模型 |
+| `modelOptions` | `grouped` | `grouped` 提供标准的按提供方分组；`flat` 提供单一列表，由每个标签携带提供方名称，供只读取扁平变体的客户端使用 |
+| `legacyModelSelection` | `false` | 同时提供被取代的模型界面：`session/new` 与 `session/resume` 上的 `models` 状态，以及 `session/set_model` |
 | `sessionListPageSize` | `100` | 单页 `session/list` 返回的最大摘要数量 |
 
 生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-acp)是每个受支持字段及其 JSDoc 的穷尽式真源。
@@ -63,17 +66,18 @@ kind: "package-reference"
 |---|---|
 | `initialize` | 稳定 ACP v1，以及 `session/list`、`session/resume`、`session/close` 与 Streamable HTTP MCP 支持；图片提示词只在持久附件存储和配置的确切路由支持时公布。 |
 | `authenticate` | 立即成功；服务器不需要身份验证。 |
-| `session/new` | 全新持久 agent；其绝对工作区与 stdio 或 HTTP MCP 服务器会在发布前通过校验，并返回完整配置选项状态。 |
+| `session/new` | 全新持久 agent；其绝对工作区与 stdio 或 HTTP MCP 服务器会在发布前通过校验，并返回完整配置选项状态；启用 `legacyModelSelection` 时还会返回被取代的 `models` 状态。 |
 | `session/list` | 按确定的新到旧顺序分页返回已持久化、可恢复的根会话；可选绝对 `cwd` 筛选会尽可能使用物理目录标识。 |
-| `session/resume` | 恢复一个已持久化且非活跃的会话；组合前校验其规范工作区，并恢复日志但不回放旧更新。 |
+| `session/resume` | 恢复一个已持久化且非活跃的会话；组合前校验其规范工作区，恢复日志但不回放旧更新，并返回与 `session/new` 相同的配置状态。 |
 | `session/close` | 停稳式取消、更新 drain、后代释放、持久化 flush，并且只释放指定 Agent 作用域。 |
 | `session/set_config_option` | 串行更新公布的 `model` 或 `reasoning_effort`，并返回完整结果状态。 |
+| `session/set_model` | 被取代的模型选择方法，仅在 `legacyModelSelection` 下注册；其取值为 `models` 状态中的 `modelId`。 |
 | `session/prompt` | 有序文本、资源链接与受支持图片，每个会话一次一个提示词；Agent 空闲且有序更新交付后才结算。 |
 | `session/cancel` / `$/cancel_request` | 提示词所拥有的取消路径；没有进行中的 ACP 提示词时取消自主工作，未知会话 id 则为空操作。 |
 | `session/update` | 已提交 assistant 消息与 thought、通用工具生命周期、配置变化与上下文用量，按会话串行交付。 |
 | `session/request_permission` | 带一次性允许／拒绝选项的权限提示；你的客户端可以自动回答。 |
 
-会话配置从实时 LLM（大语言模型）服务目录提供不透明的提供方／模型选项，并在确切模型声明推理选项时提供 `reasoning_effort`。提示词会在异步图片准入前快照该选择，并在该轮次的每个模型步骤中固定它；并发选项变更从下一轮次开始生效。ACP 客户端是受信控制器：stdio MCP 条目授权其绝对命令与环境，HTTP 条目授权其绝对 HTTP(S) URL 与 header；初始连接或发现失败会回滚尚未发布的 Agent。不支持的界面会被省略或拒绝：`session/load`、删除、fork、附加目录、SSE（Server-Sent Events）或 ACP 传输 MCP、mode、命令、计划、终端、客户端文件系统操作与 elicitation。
+会话配置从实时 LLM（大语言模型）服务目录提供不透明的提供方／模型选项，并在确切模型声明推理选项时提供 `reasoning_effort`。`modelOptions: flat` 保持这些取值不变，只把提供方名称移入每个标签，这正是只读取扁平 `SessionConfigSelectOptions` 的客户端会渲染的形式；`legacyModelSelection` 另外回答从未了解 `session/set_config_option` 的客户端，其 `models` 标签始终携带提供方名称，因为该形状没有分组可用于区分同名模型。提示词会在异步图片准入前快照该选择，并在该轮次的每个模型步骤中固定它；并发选项变更从下一轮次开始生效。ACP 客户端是受信控制器：stdio MCP 条目授权其绝对命令与环境，HTTP 条目授权其绝对 HTTP(S) URL 与 header；初始连接或发现失败会回滚尚未发布的 Agent。不支持的界面会被省略或拒绝：`session/load`、删除、fork、附加目录、SSE（Server-Sent Events）或 ACP 传输 MCP、mode、命令、计划、终端、客户端文件系统操作与 elicitation。
 
 -----
 

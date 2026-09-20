@@ -24,16 +24,36 @@ export interface AcpConfig {
   provider?: string
   /** Model name for created agents. */
   model?: string
+  /**
+   * How the `model` option lists values. `grouped` is the standard
+   * presentation; `flat` is one list whose labels carry the provider name,
+   * which is what a client reading only the flat variant renders.
+   */
+  modelOptions?: ModelOptionPresentation
+  /**
+   * Also serve the superseded model surface: the `models` state on
+   * `session/new` and `session/resume`, and the `session/set_model` method.
+   * Required by clients that predate `session/set_config_option`.
+   */
+  legacyModelSelection?: boolean
   /** Maximum summaries returned by one session/list page. */
   sessionListPageSize?: number
   /** Runtime-only transport override; production uses stdio. */
   stream?: Stream
 }
+
+/**
+ * How the `model` select lists its values. `grouped` is the standard
+ * presentation; `flat` trades the provider grouping for a single list whose
+ * labels carry the provider name, because a client that reads only the flat
+ * variant of `SessionConfigSelectOptions` renders no control for groups.
+ */
+export type ModelOptionPresentation = 'grouped' | 'flat'
 ```
 
 Depends on: `Stream` (`@agentclientprotocol/sdk`)
 
-来源：[`packages/acp/acp/src/index.ts:75`](../packages/acp/acp/src/index.ts)
+来源：[`packages/acp/acp/src/index.ts:86`](../packages/acp/acp/src/index.ts)
 
 <a id="deepseek-aidsh-agent-default-model"></a>
 

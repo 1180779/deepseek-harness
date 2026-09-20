@@ -31,6 +31,7 @@ Use this package when a script, test runner, or another harness needs to run age
 
 Choose it when automation should own the interaction: an out-of-process subagent, test runner, or scripted controller that manages persistent sessions, tools, model selection, and permissions. Avoid it when a human needs DSH-specific presentation cards, plans, titles, todos, terminal views, or elicitation; this server intentionally exposes only the standard ACP v1 surface.
 
+<a id="minimal-configuration"></a>
 ### Minimal configuration
 
 Every session the server creates uses the provider and model configured here. Both fields are optional so another agent or request listener can supply them; the runnable demo composition sets both. Stdout carries only protocol traffic, so keep logging off it.
@@ -46,6 +47,8 @@ Every session the server creates uses the provider and model configured here. Bo
 |---|---|---|
 | `provider` | — | Provider route for every session's agent |
 | `model` | — | Model for every session's agent |
+| `modelOptions` | `grouped` | `grouped` serves the standard provider groups; `flat` serves one list whose labels carry the provider name, for clients that read only the flat variant |
+| `legacyModelSelection` | `false` | Also serve the superseded model surface: the `models` state on `session/new` and `session/resume`, and `session/set_model` |
 | `sessionListPageSize` | `100` | Maximum summaries returned in one `session/list` page |
 
 The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-acp) is the exhaustive source for every accepted field and its JSDoc.
@@ -63,17 +66,18 @@ One connection can run several sessions at once, each independent. The calls a c
 |---|---|
 | `initialize` | Stable ACP v1 plus `session/list`, `session/resume`, `session/close`, and Streamable HTTP MCP support; image prompts only when the durable attachment store and configured exact route support them. |
 | `authenticate` | Immediate success; the server requires no authentication. |
-| `session/new` | A fresh persistent agent whose absolute workspace and stdio or HTTP MCP servers are validated before publication, plus its complete configuration-option state. |
+| `session/new` | A fresh persistent agent whose absolute workspace and stdio or HTTP MCP servers are validated before publication, plus its complete configuration-option state and, under `legacyModelSelection`, the superseded `models` state. |
 | `session/list` | Deterministic newest-first pages of persisted, resumable root sessions; an optional absolute `cwd` filter uses physical-directory identity where possible. |
-| `session/resume` | A persisted inactive session whose canonical workspace is verified before composition; its log is restored without replaying old updates. |
+| `session/resume` | A persisted inactive session whose canonical workspace is verified before composition; its log is restored without replaying old updates, and it returns the same configuration state as `session/new`. |
 | `session/close` | Quiescent cancellation, update draining, descendant disposal, persistence flush, and disposal of only the addressed Agent scope. |
 | `session/set_config_option` | A serialized update to the advertised `model` or `reasoning_effort`, returning the complete resulting state. |
+| `session/set_model` | The superseded model-selection method, registered only under `legacyModelSelection`; its value is a `modelId` from the `models` state. |
 | `session/prompt` | Ordered text, resource links, and supported images, one prompt at a time per session; settlement follows Agent idle and ordered update delivery. |
 | `session/cancel` / `$/cancel_request` | The prompt-owned cancellation path; without an ACP prompt in flight it cancels autonomous work, while unknown session ids are no-ops. |
 | `session/update` | Committed assistant messages and thoughts, generic tool lifecycle, configuration changes, and context usage, serialized per session. |
 | `session/request_permission` | A permission prompt with one-shot allow/reject choices; your client can answer automatically. |
 
-Session configuration offers opaque provider/model choices from the live LLM service catalog and a `reasoning_effort` selector when the exact model declares one. A prompt snapshots that selection before asynchronous image admission and pins it across every model step in that turn; a concurrent option change applies to the next turn. ACP clients are trusted controllers: stdio MCP entries authorize their absolute commands and environment, HTTP entries authorize their absolute HTTP(S) URLs and headers, and any initial connection or discovery failure rolls back the unpublished Agent. Unsupported surfaces are omitted or rejected: `session/load`, deletion, fork, additional directories, SSE or ACP-transport MCP, modes, commands, plans, terminals, client filesystem operations, and elicitation.
+Session configuration offers opaque provider/model choices from the live LLM service catalog and a `reasoning_effort` selector when the exact model declares one. `modelOptions: flat` keeps those values identical and moves the provider name into each label, which is what a client reading only a flat `SessionConfigSelectOptions` renders; `legacyModelSelection` additionally answers clients that never learned `session/set_config_option`, and its `models` labels always carry the provider name because that shape has no groups to disambiguate equal model names. A prompt snapshots that selection before asynchronous image admission and pins it across every model step in that turn; a concurrent option change applies to the next turn. ACP clients are trusted controllers: stdio MCP entries authorize their absolute commands and environment, HTTP entries authorize their absolute HTTP(S) URLs and headers, and any initial connection or discovery failure rolls back the unpublished Agent. Unsupported surfaces are omitted or rejected: `session/load`, deletion, fork, additional directories, SSE or ACP-transport MCP, modes, commands, plans, terminals, client filesystem operations, and elicitation.
 
 -----
 

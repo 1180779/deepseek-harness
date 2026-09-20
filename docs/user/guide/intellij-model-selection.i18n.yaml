@@ -1,6 +1,6 @@
 # Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
-#   pnpm run verify-translation-pairing --write docs/config-catalog.md
-config-catalog.md: ccaf5527297a9f3db2ad144e52a3af37b7b520ba
-config-catalog.zh.md: 30b05bf7f70cf1ed244bf278dae4c61263dea503
+#   pnpm run verify-translation-pairing --write docs/user/guide/intellij-model-selection.md
+intellij-model-selection.md: e2fd54ff3bddac8a313bb9e0bfb49a3cec5db6be
+intellij-model-selection.zh.md: 5e8b4bb2f757f98f33d8b8e7b93e1e81fbf074c2

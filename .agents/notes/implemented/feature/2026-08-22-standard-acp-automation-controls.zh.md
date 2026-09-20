@@ -16,7 +16,7 @@ Status: implemented
 
 `@deepseek-ai/dsh-acp` 实现通用控制器需要的完整标准 ACP v1 自动化子集：`session/new`、`session/list`、`session/resume`、`session/close`、`session/prompt`、`session/cancel`、`session/set_config_option`、JSON-RPC `$/cancel_request`、`session/update` 和 `session/request_permission`。仓库内每条连接的两端都使用 `@agentclientprotocol/sdk` 1.4 的 app／context 接口。
 
-能力会省略未支持的方法和功能。DSH 不增加自定义方法、能力标记或 `_meta`，也不为客户端元数据赋予私有含义。`session/load`、`session/delete`、`session/fork`、附加目录、SSE 和 ACP 传输 MCP、模式、命令、计划、终端、客户端文件系统操作和 elicitation 仍不受支持。会话控制和语义更新是自动化协议数据；它们不会使 ACP 成为人工 UI。
+能力会省略未支持的方法和功能。DSH 不增加自己的自定义方法、能力标记或 `_meta`，也不为客户端元数据赋予私有含义。唯一超出该集合的方法是 `session/set_model` —— 它是 ACP 自身的被取代模型选择调用而非 DSH 扩展，未选择加入 [`legacyModelSelection`](2026-09-20-superseded-acp-model-surface.zh.md) 的部署永远不会注册它。`session/load`、`session/delete`、`session/fork`、附加目录、SSE 和 ACP 传输 MCP、模式、命令、计划、终端、客户端文件系统操作和 elicitation 仍不受支持。会话控制和语义更新是自动化协议数据；它们不会使 ACP 成为人工 UI。
 
 ## Per-session 所有权
 
@@ -36,7 +36,7 @@ bridge 经由普通的持久性屏障实体化：`ctx.sessions.flush(session)` �
 
 ## 标准配置选项
 
-建议性 LLM catalog 现在服务于另一个自动化 consumer，但不会成为请求校验。ACP 公开按提供方分组的 `model` select，其不透明值保留提供方／模型对；还会公开来自已解析确切模型的依赖 `reasoning_effort` select。具有 efforts 但没有 adapter 配置默认值的模型会包含 `Provider default`，以保留省略状态并让提供方自行选择。新建、恢复和设置响应都返回完整状态。Adapter 拓扑事件发出 `config_option_update`；每个会话按接收顺序串行处理变更。配置的 ACP 提供方／模型仍是初始选择；未列出的配置路由会合成到返回选项中，而不会被拒绝。
+建议性 LLM catalog 现在服务于另一个自动化 consumer，但不会成为请求校验。ACP 公开按提供方分组的 `model` select，其不透明值保留提供方／模型对；还会公开来自已解析确切模型的依赖 `reasoning_effort` select。部署可以通过 [`modelOptions`](2026-09-20-superseded-acp-model-surface.zh.md) 用单个扁平列表替换分组。具有 efforts 但没有 adapter 配置默认值的模型会包含 `Provider default`，以保留省略状态并让提供方自行选择。新建、恢复和设置响应都返回完整状态。Adapter 拓扑事件发出 `config_option_update`；每个会话按接收顺序串行处理变更。配置的 ACP 提供方／模型仍是初始选择；未列出的配置路由会合成到返回选项中，而不会被拒绝。
 
 ## 标准 MCP 映射
 

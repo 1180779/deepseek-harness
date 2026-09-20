@@ -16,7 +16,7 @@ The stable ACP v1 protocol already defines the required control vocabulary. Addi
 
 `@deepseek-ai/dsh-acp` implements the complete standard ACP v1 automation subset needed by a generic controller: `session/new`, `session/list`, `session/resume`, `session/close`, `session/prompt`, `session/cancel`, `session/set_config_option`, JSON-RPC `$/cancel_request`, `session/update`, and `session/request_permission`. It uses `@agentclientprotocol/sdk` 1.4's app/context interface on both sides of every in-repository connection.
 
-Capabilities omit unsupported methods and features. DSH adds no custom method, capability flag, or `_meta`, and assigns no private meaning to client metadata. `session/load`, `session/delete`, `session/fork`, additional directories, SSE and ACP-transport MCP, modes, commands, plans, terminals, client filesystem operations, and elicitation remain unsupported. Session controls and semantic updates are protocol data for automation; they do not make ACP a human UI.
+Capabilities omit unsupported methods and features. DSH adds no custom method of its own, no capability flag, and no `_meta`, and assigns no private meaning to client metadata. The one method beyond this set is `session/set_model`, which is ACP's own superseded model-selection call rather than a DSH extension, and a deployment that does not opt into [`legacyModelSelection`](2026-09-20-superseded-acp-model-surface.md) never registers it. `session/load`, `session/delete`, `session/fork`, additional directories, SSE and ACP-transport MCP, modes, commands, plans, terminals, client filesystem operations, and elicitation remain unsupported. Session controls and semantic updates are protocol data for automation; they do not make ACP a human UI.
 
 ## Per-session ownership
 
@@ -36,7 +36,7 @@ The bridge materializes through the ordinary durability barrier: `ctx.sessions.f
 
 ## Standard configuration options
 
-The advisory LLM catalog now serves another automation consumer without becoming request validation. ACP exposes a provider-grouped `model` select whose opaque values retain the provider/model pair, plus a dependent `reasoning_effort` select from the resolved exact model. A model with efforts but no adapter-configured default includes `Provider default`, which preserves omission and lets the provider choose. New, resume, and set responses return the complete state. Adapter topology events emit `config_option_update`; per-session mutations serialize in receive order. The configured ACP provider/model remains the initial selection, and unlisted configured routes are synthesized into the returned choices instead of being rejected.
+The advisory LLM catalog now serves another automation consumer without becoming request validation. ACP exposes a provider-grouped `model` select whose opaque values retain the provider/model pair, plus a dependent `reasoning_effort` select from the resolved exact model; a deployment can trade the groups for one flat list through [`modelOptions`](2026-09-20-superseded-acp-model-surface.md). A model with efforts but no adapter-configured default includes `Provider default`, which preserves omission and lets the provider choose. New, resume, and set responses return the complete state. Adapter topology events emit `config_option_update`; per-session mutations serialize in receive order. The configured ACP provider/model remains the initial selection, and unlisted configured routes are synthesized into the returned choices instead of being rejected.
 
 ## Standard MCP mapping
 
