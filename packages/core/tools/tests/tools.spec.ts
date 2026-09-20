@@ -1,6 +1,6 @@
 import { describe, expect, expectTypeOf, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import LlmRuntime, { createUserMessage, ToolCallId, HarnessError, type ContentBlock  } from '@deepseek-ai/dsh-llm'
+import LlmRuntime, { type ContentBlock, createUserMessage, HarnessError, ToolCallId } from '@deepseek-ai/dsh-llm'
 import SessionStore, { Session, SessionId } from '@deepseek-ai/dsh-session'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
@@ -8,10 +8,25 @@ import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import ApprovalService, { type ApprovalOutcome, type ApprovalRequest } from '@deepseek-ai/dsh-user-approval'
 import ToolRuntime, {
-  defineContentToolFixture, defineTool, JsonSchemaError, parameterSchemaSpecToJsonSchema, validateArgs, ToolArgsError, ToolNotFoundError,
-  TOOL_ABORTED, TOOL_ABORTED_BEFORE_DISPATCH,
-  type InferArgs, type ParameterSchemaSpec, type PreToolDecision, type PostToolDecision,
-  type JsonSchemaNode, type ToolDefinition, type ToolDispatchExecution, type ToolExecutionResult, type ToolExecutionToken,
+  defineContentToolFixture,
+  defineTool,
+  type InferArgs,
+  JsonSchemaError,
+  type JsonSchemaNode,
+  type ParameterSchemaSpec,
+  parameterSchemaSpecToJsonSchema,
+  type PostToolDecision,
+  type PreToolDecision,
+  TOOL_ABORTED,
+  TOOL_ABORTED_BEFORE_DISPATCH,
+  TOOL_RUNTIME_SCHEDULER,
+  ToolArgsError,
+  type ToolDefinition,
+  type ToolDispatchExecution,
+  type ToolExecutionResult,
+  type ToolExecutionToken,
+  ToolNotFoundError,
+  validateArgs,
 } from '@deepseek-ai/dsh-tools'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 
@@ -38,6 +53,10 @@ const echoTool = defineTool({
 })
 
 describe('ToolRuntime', () => {
+  it('shares the agent-loop scheduler key across package instances', () => {
+    expect(TOOL_RUNTIME_SCHEDULER).toBe(Symbol.for('@deepseek-ai/dsh-tools.scheduler'))
+  })
+
   it('registers tools, exposes schemas, and feeds the system-prompt assembly', async () => {
     const ctx = await setup()
     ctx.tools.register(echoTool)
