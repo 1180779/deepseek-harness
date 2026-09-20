@@ -6,15 +6,28 @@
  * and drains started calls.
  *
  * Abort records synthetic error results for skipped calls so replay stays
- * valid. A terminal scheduler failure preserves already-recorded `tool/call`
- * events without fabricating results.
+ * valid. A terminal scheduler failure records conservative error results so
+ * the failed turn remains valid model history.
  * @module dsh-agent-loop/tool-calls
  */
 
 import type { Context } from '@deepseek-ai/cordis'
 import { createToolResultMessage, type ToolCallBlock } from '@deepseek-ai/dsh-llm'
-import type { Session, SessionSeq, UserMessage } from '@deepseek-ai/dsh-session'
-import { TOOL_ABORTED_BEFORE_DISPATCH, TOOL_RUNTIME_SCHEDULER, type ToolExecutionInput, type ToolExecutionMode, type ToolExecutionResult, type ToolRunContext } from '@deepseek-ai/dsh-tools'
+import {
+  type Session,
+  type SessionSeq,
+  TOOL_NOT_STARTED,
+  TOOL_OUTCOME_UNKNOWN,
+  type UserMessage,
+} from '@deepseek-ai/dsh-session'
+import {
+  TOOL_ABORTED_BEFORE_DISPATCH,
+  TOOL_RUNTIME_SCHEDULER,
+  type ToolExecutionInput,
+  type ToolExecutionMode,
+  type ToolExecutionResult,
+  type ToolRunContext,
+} from '@deepseek-ai/dsh-tools'
 import { assertNever } from '@deepseek-ai/dsh-util-values'
 
 /** One tool call after argument parsing, ready to schedule. */
@@ -45,8 +58,8 @@ interface GroupOutcome {
  * the signal still aborted after accepting started-call context through the
  * caller-supplied acceptor (the machine stages it in its next-step inbox for the
  * step boundary). An internal scheduler failure stops new dispatches, drains
- * already-started dispatches, and rejects with the first failure without
- * fabricating tool results.
+ * already-started dispatches, records whether each outcome is unknown or was
+ * never started, and rejects with the first failure.
  * The committed step's AgentLoop driver boundary supplies the initiating Agent
  * that becomes each explicit {@link ToolExecutionInput.agent}.
  *
@@ -133,6 +146,7 @@ async function runGroup(
   const slots: (Slot | undefined)[] = group.map(() => undefined)
   // Started slots retain their `tool/call` seq so the result can cite it.
   const callSeqs: Array<SessionSeq | undefined> = group.map(() => undefined)
+  const dispatched: boolean[] = group.map(() => false)
   let nextToStart = 0
   let committed = 0
   let started = 0
@@ -171,6 +185,7 @@ async function runGroup(
     throwSchedulerFailure()
     switch (prepared.kind) {
       case 'dispatch': {
+        dispatched[index] = true
         const promise = ctx.tools[TOOL_RUNTIME_SCHEDULER].dispatch(prepared.exec).then(
           (outcome) => {
             slots[index] = { exec: prepared.exec, result: outcome.result, needsPost: outcome.kind === 'post-result' }
@@ -232,6 +247,10 @@ async function runGroup(
   } catch (error: unknown) {
     schedulerFailure ??= { error }
     await Promise.allSettled(inFlight.values())
+    for (let index = committed; index < group.length; index++) {
+      // oxlint-disable-next-line typescript/no-non-null-assertion -- bounded by group.length
+      appendFailedSchedulerCall(session, turn, step, group[index]!.block, callSeqs[index], dispatched[index] === true)
+    }
     throw schedulerFailure.error
   }
 
@@ -244,6 +263,31 @@ async function runGroup(
   /* v8 ignore next -- unreachable: a non-aborted group commits every started call */
   if (committed !== started) throw new Error('tool-call scheduler: uncommitted settled calls')
   return { consumed: started, aborted: false, concluded }
+}
+
+/** Record a conservative result after the scheduler itself fails. */
+function appendFailedSchedulerCall(
+  session: Session,
+  turn: number,
+  step: number,
+  block: ToolCallBlock,
+  existingCallSeq: SessionSeq | undefined,
+  dispatched: boolean,
+): void {
+  const callSeq = existingCallSeq ?? appendToolCall(session, turn, step, block)
+  const message = dispatched
+    ? 'The tool call started, but its completed outcome was not recorded. Its outcome is unknown. Verify external state before retrying an operation that may have side effects.'
+    : 'The tool call was not started. Retry it if it is still needed.'
+  appendToolResult(session, turn, step, block, {
+    content: [{ type: 'text', text: message }],
+    isError: true,
+    error: {
+      message,
+      info: dispatched
+        ? { name: 'ToolOutcomeUnknownError', code: TOOL_OUTCOME_UNKNOWN }
+        : { name: 'ToolNotStartedError', code: TOOL_NOT_STARTED },
+    },
+  }, callSeq)
 }
 
 /** Append the durable call/result pair for a model call skipped after cancellation. */
